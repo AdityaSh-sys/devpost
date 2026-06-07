@@ -1,6 +1,3 @@
-// API Route: /api/chat
-// Handles online chat requests via Gemini API
-
 import { NextRequest, NextResponse } from 'next/server';
 
 const GEMINI_MODEL = 'gemini-2.5-flash-lite';
@@ -16,20 +13,81 @@ Key traits:
 
 Always be concise but thorough. Use bullet points and numbered lists for clarity.`;
 
+async function callGeminiDirect(query: string, history: { role: string; content: string }[]): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  const contents = [
+    { role: 'user', parts: [{ text: SYSTEM_PROMPT }] },
+    { role: 'model', parts: [{ text: 'Understood. I am Blackout AI, ready to help across all connectivity conditions.' }] },
+    ...history.map((msg) => ({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }],
+    })),
+    { role: 'user', parts: [{ text: query }] },
+  ];
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents,
+      generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { query, history = [] } = body;
+    const sessionId = req.headers.get('X-Session-Id') || '';
 
     if (!query) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
     }
 
-    // Read API key at runtime (not module load time)
-    const apiKey = process.env.GEMINI_API_KEY || '';
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+    // Try proxying to FastAPI backend first
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    // If no API key, return a demo response
+      const backendResponse = await fetch(`${backendUrl}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-Id': sessionId,
+        },
+        body: JSON.stringify({ query, history }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (backendResponse.ok) {
+        const data = await backendResponse.json();
+        return NextResponse.json({
+          response: data.response,
+          model: data.model || `Gemini ${GEMINI_MODEL}`,
+        });
+      }
+    } catch {
+      console.warn('FastAPI backend unreachable, falling back to direct Gemini call');
+    }
+
+    // Fallback: call Gemini directly
+    const apiKey = process.env.GEMINI_API_KEY || '';
     if (!apiKey) {
       return NextResponse.json({
         response: generateDemoResponse(query),
@@ -37,62 +95,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Build conversation for Gemini
-    const contents = [
-      {
-        role: 'user',
-        parts: [{ text: SYSTEM_PROMPT }],
-      },
-      {
-        role: 'model',
-        parts: [{ text: 'Understood. I am Blackout AI, ready to help across all connectivity conditions.' }],
-      },
-      ...history.map((msg: { role: string; content: string }) => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }],
-      })),
-      {
-        role: 'user',
-        parts: [{ text: query }],
-      },
-    ];
-
-    const response = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          topP: 0.95,
-          topK: 40,
-          maxOutputTokens: 2048,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini API error:', errorText);
-      return NextResponse.json({
-        response: generateDemoResponse(query),
-        model: 'Blackout Demo Mode (API Error)',
-      });
-    }
-
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
-
+    const text = await callGeminiDirect(query, history);
     return NextResponse.json({
       response: text,
-      model: `Gemini 2.5 Flash Lite`,
+      model: `Gemini ${GEMINI_MODEL}`,
     });
   } catch (error) {
     console.error('Chat API error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 

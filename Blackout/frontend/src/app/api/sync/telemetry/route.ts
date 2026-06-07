@@ -1,7 +1,5 @@
-// API Route: /api/sync/telemetry
-// Syncs telemetry events to MongoDB Atlas
-
 import { NextRequest, NextResponse } from 'next/server';
+import { MongoClient } from 'mongodb';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,22 +10,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    // In production: Store to MongoDB Atlas
-    // const { MongoClient } = require('mongodb');
-    // const client = new MongoClient(process.env.MONGODB_URI);
-    // await client.db('blackout').collection('telemetry').insertMany(events);
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      return NextResponse.json({
+        synced: 0,
+        message: 'MongoDB not configured',
+      });
+    }
 
-    console.log(`Synced ${events.length} telemetry events`);
+    const client = new MongoClient(uri);
+    await client.connect();
+    const collection = client.db('blackout').collection('telemetry');
+
+    let synced = 0;
+    for (const event of events) {
+      await collection.insertOne({
+        ...event,
+        syncedAt: new Date(),
+      });
+      synced++;
+    }
+
+    await client.close();
 
     return NextResponse.json({
-      synced: events.length,
+      synced,
       timestamp: Date.now(),
     });
   } catch (error) {
     console.error('Telemetry sync error:', error);
-    return NextResponse.json(
-      { error: 'Sync failed' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
   }
 }

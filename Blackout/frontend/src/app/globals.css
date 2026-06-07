@@ -629,6 +629,199 @@ body {
   font-size: 12px; color: var(--text-muted);
 }
 
+/* ============ SMS ACTION BUTTON ============ */
+.sms-action {
+  margin: 8px 0 4px;
+}
+
+.sms-send-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 20px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+
+.sms-send-btn:hover {
+  opacity: 0.85;
+}
+
+.voice-btn.disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ============ KNOWLEDGE BASE MODAL ============ */
+.kb-controls {
+  padding: 8px 24px;
+  display: flex;
+  gap: 8px;
+}
+
+.kb-add-btn {
+  padding: 8px 16px;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.kb-add-btn:hover {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+}
+
+.kb-add-form {
+  padding: 12px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kb-input, .kb-textarea, .kb-select {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.kb-input:focus, .kb-textarea:focus, .kb-select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.kb-textarea {
+  resize: vertical;
+}
+
+.kb-form-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kb-input.tags {
+  flex: 1;
+}
+
+.kb-select {
+  min-width: 100px;
+}
+
+.kb-save-btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kb-save-btn:hover {
+  opacity: 0.85;
+}
+
+.kb-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.kb-card {
+  position: relative;
+}
+
+.kb-category {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.kb-category.medical { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.kb-category.survival { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+.kb-category.emergency { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.kb-category.safety { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.kb-category.general { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+
+.kb-answer-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.kb-delete-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.kb-card:hover .kb-delete-btn {
+  opacity: 1;
+}
+
+.kb-delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* ============ CAPTIVE PORTAL / DEGRADED WARNINGS ============ */
+.captive-warning,
+.degraded-warning {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #f59e0b;
+}
+
+.connectivity-pill.degraded {
+  border-color: #f59e0b80;
+}
+
+.connectivity-pill.captive {
+  border-color: #f59e0b;
+}
+
+.connectivity-latency.degraded {
+  color: #f59e0b;
+}
+
+.sync-row.conflict {
+  color: #f59e0b;
+}
+
+.conflict-count {
+  font-weight: 600;
+}
+
 /* ============ RESPONSIVE ============ */
 @media (max-width: 768px) {
   .header-brand h1 { display: none; }

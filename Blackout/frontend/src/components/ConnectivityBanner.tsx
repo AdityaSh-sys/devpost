@@ -18,6 +18,8 @@ export default function ConnectivityBanner() {
     latency: null,
     effectiveType: null,
     lastChecked: Date.now(),
+    degraded: false,
+    captivePortal: false,
   });
   const [isExpanded, setIsExpanded] = useState(false);
   const [demoMode, setDemoMode] = useState<ConnectivityMode | null>(null);
@@ -54,15 +56,23 @@ export default function ConnectivityBanner() {
   return (
     <div className="connectivity-banner">
       <button
-        className="connectivity-pill"
+        className={`connectivity-pill ${state.degraded ? 'degraded' : ''} ${state.captivePortal ? 'captive' : ''}`}
         onClick={() => setIsExpanded(!isExpanded)}
         style={{ '--mode-color': modeColor } as React.CSSProperties}
       >
         <span className="connectivity-dot" />
         <span className="connectivity-icon">{getModeIcon(activeMode)}</span>
-        <span className="connectivity-label">{getModeLabel(activeMode)}</span>
+        <span className="connectivity-label">
+          {state.captivePortal
+            ? 'Captive Portal'
+            : state.degraded
+              ? 'Slow Connection'
+              : getModeLabel(activeMode)}
+        </span>
         {state.latency !== null && activeMode === 'online' && (
-          <span className="connectivity-latency">{state.latency}ms</span>
+          <span className={`connectivity-latency ${state.degraded ? 'degraded' : ''}`}>
+            {state.latency}ms
+          </span>
         )}
         {demoMode && <span className="demo-badge">DEMO</span>}
         <svg
@@ -86,6 +96,16 @@ export default function ConnectivityBanner() {
         <div className="connectivity-dropdown">
           <div className="connectivity-info">
             <h4>Connectivity Status</h4>
+            {state.captivePortal && (
+              <div className="info-row captive-warning">
+                <span>⚠️ Connected to network but no internet access.</span>
+              </div>
+            )}
+            {state.degraded && (
+              <div className="info-row degraded-warning">
+                <span>⚠️ Connection is slow — responses may be delayed.</span>
+              </div>
+            )}
             <div className="info-row">
               <span>Internet:</span>
               <span className={state.isOnline ? 'status-on' : 'status-off'}>

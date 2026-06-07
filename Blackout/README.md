@@ -14,19 +14,21 @@ Blackout is a **Connectivity Spectrum AI** application that intelligently routes
 
 ## 🚀 Quick Start
 
+### Backend (FastAPI) — must be running first
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+The frontend proxies Mode A (Online) chat calls through this backend for Arize Phoenix observability. If the backend is unreachable, the frontend falls back to calling Gemini directly.
+
 ### Frontend (Next.js PWA)
 ```bash
 cd frontend
 cp .env.local.example .env.local  # Add your API keys
 npm install
 npm run dev
-```
-
-### Backend (FastAPI)
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload
 ```
 
 ## 🔑 API Keys Needed

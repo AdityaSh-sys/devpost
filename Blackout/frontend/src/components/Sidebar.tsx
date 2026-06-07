@@ -141,7 +141,7 @@ export default function Sidebar({ isOpen, onClose, onOpenModels }: SidebarProps)
                     <path d="M2 17L12 22L22 17" stroke="currentColor" strokeWidth="2" />
                     <path d="M2 12L12 17L22 12" stroke="currentColor" strokeWidth="2" />
                   </svg>
-                  Manage Offline Models
+                  Manage Knowledge Base
                 </button>
               </div>
 

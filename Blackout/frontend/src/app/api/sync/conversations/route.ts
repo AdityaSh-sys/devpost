@@ -1,33 +1,61 @@
-// API Route: /api/sync/conversations
-// Syncs local conversations to MongoDB Atlas
-
 import { NextRequest, NextResponse } from 'next/server';
+import { MongoClient } from 'mongodb';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { conversations } = body;
+    const { conversations, deviceId } = body;
 
     if (!conversations || !Array.isArray(conversations)) {
       return NextResponse.json({ error: 'Invalid data' }, { status: 400 });
     }
 
-    // In production: Store to MongoDB Atlas
-    // const { MongoClient } = require('mongodb');
-    // const client = new MongoClient(process.env.MONGODB_URI);
-    // await client.db('blackout').collection('conversations').insertMany(conversations);
+    const uri = process.env.MONGODB_URI;
+    if (!uri) {
+      return NextResponse.json({
+        synced: 0,
+        conflicts: [],
+        message: 'MongoDB not configured',
+      });
+    }
 
-    console.log(`Synced ${conversations.length} conversations`);
+    const client = new MongoClient(uri);
+    await client.connect();
+    const collection = client.db('blackout').collection('conversations');
+
+    const conflicts: Array<{ localId: string; serverVersion: any }> = [];
+
+    for (const conv of conversations) {
+      const existing = await collection.findOne({ localId: conv.id });
+
+      if (existing) {
+        if ((conv.updatedAt || conv.timestamp) > (existing.updatedAt || existing.timestamp)) {
+          await collection.replaceOne({ localId: conv.id }, {
+            ...conv,
+            localId: conv.id,
+            updatedAt: conv.updatedAt || conv.timestamp,
+          });
+        } else {
+          conflicts.push({ localId: conv.id, serverVersion: existing });
+        }
+      } else {
+        await collection.insertOne({
+          ...conv,
+          localId: conv.id,
+          updatedAt: conv.updatedAt || conv.timestamp,
+        });
+      }
+    }
+
+    await client.close();
 
     return NextResponse.json({
-      synced: conversations.length,
+      synced: conversations.length - conflicts.length,
+      conflicts,
       timestamp: Date.now(),
     });
   } catch (error) {
-    console.error('Sync error:', error);
-    return NextResponse.json(
-      { error: 'Sync failed' },
-      { status: 500 }
-    );
+    console.error('Conversation sync error:', error);
+    return NextResponse.json({ error: 'Sync failed' }, { status: 500 });
   }
 }

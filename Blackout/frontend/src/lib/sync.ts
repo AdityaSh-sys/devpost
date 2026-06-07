@@ -10,6 +10,7 @@ export interface SyncStatus {
   lastSyncTime: number | null;
   isSyncing: boolean;
   error: string | null;
+  conflicts: number;
 }
 
 class SyncEngine {
@@ -35,16 +36,45 @@ class SyncEngine {
           const response = await fetch('/api/sync/conversations', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ conversations: unsyncedConversations }),
+            body: JSON.stringify({
+              conversations: unsyncedConversations.map((c) => ({
+                ...c,
+                deviceId: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+              })),
+            }),
           });
 
           if (response.ok) {
-            // Mark as synced
+            const result = await response.json();
+            // Mark synced conversations
+            const syncedIds = unsyncedConversations
+              .filter((_, i) => i < result.synced)
+              .map((c) => c.id!);
+
             await Promise.all(
-              unsyncedConversations.map((c) =>
-                db.conversations.update(c.id!, { synced: true })
+              syncedIds.map((id) =>
+                db.conversations.update(id, { synced: true })
               )
             );
+
+            // Handle conflicts — write server versions to IndexedDB
+            if (result.conflicts && result.conflicts.length > 0) {
+              for (const conflict of result.conflicts) {
+                const server = conflict.serverVersion;
+                await db.conversations.put({
+                  ...server,
+                  id: server.localId,
+                  synced: true,
+                });
+                await db.syncConflicts.add({
+                  offlineAnswer: '',
+                  onlineAnswer: server.response || '',
+                  similarityScore: 0,
+                  resolutionStatus: 'pending',
+                  conversationId: server.localId,
+                });
+              }
+            }
           }
         } catch {
           console.log('Sync failed for conversations, will retry later');
@@ -95,12 +125,18 @@ class SyncEngine {
       .equals(0)
       .count();
 
+    const conflicts = await db.syncConflicts
+      .where('resolutionStatus')
+      .equals('pending')
+      .count();
+
     return {
       pendingConversations,
       pendingTelemetry,
       lastSyncTime: this.lastSyncTime,
       isSyncing: this.isSyncing,
       error: null,
+      conflicts,
     };
   }
 

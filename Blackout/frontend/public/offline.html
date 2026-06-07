@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blackout — Offline</title>
+  <meta name="theme-color" content="#0a0a0f" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .offline-card {
+      text-align: center;
+      max-width: 400px;
+    }
+    .offline-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      display: block;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #a78bfa, #6366f1);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    p {
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: #a0a0b0;
+      margin-bottom: 8px;
+    }
+    .retry-btn {
+      margin-top: 24px;
+      padding: 10px 24px;
+      border: 1px solid #a78bfa40;
+      border-radius: 8px;
+      background: transparent;
+      color: #a78bfa;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .retry-btn:hover {
+      background: #a78bfa10;
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-card">
+    <svg class="offline-icon" viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="14" stroke="url(#g)" stroke-width="2" />
+      <path d="M16 6V16L22 19" stroke="url(#g)" stroke-width="2" stroke-linecap="round" />
+      <circle cx="16" cy="16" r="3" fill="url(#g)" />
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="32" y2="32">
+          <stop stop-color="#a78bfa" />
+          <stop offset="1" stop-color="#6366f1" />
+        </linearGradient>
+      </defs>
+    </svg>
+    <h1>You're Offline</h1>
+    <p>Blackout is running in offline mode.</p>
+    <p>Some features may be unavailable until you reconnect to the internet.</p>
+    <button class="retry-btn" onclick="window.location.reload()">Try Again</button>
+  </div>
+</body>
+</html>

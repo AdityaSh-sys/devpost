@@ -21,7 +21,7 @@ export default function ChatWindow({
   const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -67,8 +67,8 @@ export default function ChatWindow({
     }
 
     const SpeechRecognition =
-      (window as unknown as { SpeechRecognition?: typeof window.SpeechRecognition; webkitSpeechRecognition?: typeof window.SpeechRecognition }).SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: typeof window.SpeechRecognition }).webkitSpeechRecognition;
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) return;
 
@@ -77,9 +77,9 @@ export default function ChatWindow({
     recognition.interimResults = true;
     recognition.lang = 'en-US';
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results)
-        .map((result) => result[0].transcript)
+        .map((result: any) => result[0].transcript)
         .join('');
       setInput(transcript);
     };
@@ -202,6 +202,20 @@ export default function ChatWindow({
               <div className="message-content">
                 {renderMessageContent(msg.content)}
               </div>
+              {msg.pendingSms && msg.smsLink && (
+                <div className="sms-action">
+                  <a
+                    href={msg.smsLink}
+                    className="sms-send-btn"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginRight: 8 }}>
+                      <path d="M22 2L11 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    Open SMS App
+                  </a>
+                </div>
+              )}
               <div className="message-meta">
                 <span className="message-time">{formatTimestamp(msg.timestamp)}</span>
                 {msg.role === 'assistant' && (
@@ -266,9 +280,10 @@ export default function ChatWindow({
           <div className="input-actions">
             <button
               type="button"
-              className={`voice-btn ${isRecording ? 'recording' : ''}`}
+              className={`voice-btn ${isRecording ? 'recording' : ''} ${currentMode === 'offline' ? 'disabled' : ''}`}
               onClick={toggleVoice}
-              title="Voice Input"
+              disabled={currentMode === 'offline'}
+              title={currentMode === 'offline' ? 'Voice input unavailable offline' : 'Voice Input'}
             >
               {isRecording ? (
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none">

@@ -1,6 +1,3 @@
-// Connectivity Decision Engine
-// Detects network status and determines the operating mode (Online, SMS, Offline)
-
 export type ConnectivityMode = 'online' | 'sms' | 'offline';
 
 export interface ConnectivityState {
@@ -10,10 +7,15 @@ export interface ConnectivityState {
   latency: number | null;
   effectiveType: string | null;
   lastChecked: number;
+  degraded: boolean;
+  captivePortal: boolean;
 }
 
-const LATENCY_THRESHOLD = 5000; // 5s max acceptable latency
 const PING_URL = '/api/ping';
+const CAPTIVE_PORTAL_URL = 'http://detectportal.firefox.com/success.txt';
+const DEGRADED_THRESHOLD = 2000;
+const OFFLINE_THRESHOLD = 5000;
+const HYSTERESIS_COUNT = 2;
 
 class ConnectivityEngine {
   private state: ConnectivityState = {
@@ -23,10 +25,14 @@ class ConnectivityEngine {
     latency: null,
     effectiveType: null,
     lastChecked: Date.now(),
+    degraded: false,
+    captivePortal: false,
   };
 
   private listeners: Set<(state: ConnectivityState) => void> = new Set();
   private checkInterval: ReturnType<typeof setInterval> | null = null;
+  private consecutiveFailures = 0;
+  private consecutiveSuccesses = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -35,20 +41,22 @@ class ConnectivityEngine {
   }
 
   private init() {
-    // Listen for online/offline events
-    window.addEventListener('online', () => this.checkConnectivity());
+    window.addEventListener('online', () => {
+      this.consecutiveFailures = 0;
+      this.checkConnectivity();
+    });
     window.addEventListener('offline', () => {
+      this.consecutiveFailures = HYSTERESIS_COUNT;
       this.updateState({
         isOnline: false,
         mode: this.detectCellular() ? 'sms' : 'offline',
         latency: null,
+        degraded: false,
+        captivePortal: false,
       });
     });
 
-    // Initial check
     this.checkConnectivity();
-
-    // Periodic check every 30 seconds
     this.checkInterval = setInterval(() => this.checkConnectivity(), 30000);
   }
 
@@ -56,7 +64,6 @@ class ConnectivityEngine {
     if (typeof navigator !== 'undefined' && 'connection' in navigator) {
       const conn = (navigator as Navigator & { connection?: { type?: string; effectiveType?: string } }).connection;
       if (conn) {
-        // cellular, wifi, ethernet, etc.
         const type = conn.type;
         return type === 'cellular' || type === '4g' || type === '3g' || type === '2g';
       }
@@ -64,10 +71,28 @@ class ConnectivityEngine {
     return false;
   }
 
+  private async checkCaptivePortal(): Promise<boolean> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(CAPTIVE_PORTAL_URL, {
+        method: 'GET',
+        signal: controller.signal,
+        cache: 'no-store',
+      });
+      clearTimeout(timeoutId);
+      const text = await resp.text();
+      return resp.ok && text.trim() === 'success';
+    } catch {
+      return false;
+    }
+  }
+
   async checkConnectivity(): Promise<ConnectivityState> {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
     if (!isOnline) {
+      this.consecutiveFailures = HYSTERESIS_COUNT;
       const hasCellular = this.detectCellular();
       this.updateState({
         isOnline: false,
@@ -75,16 +100,18 @@ class ConnectivityEngine {
         mode: hasCellular ? 'sms' : 'offline',
         latency: null,
         lastChecked: Date.now(),
+        degraded: false,
+        captivePortal: false,
       });
       return this.state;
     }
 
-    // Measure latency with a ping
     let latency: number | null = null;
+    let pingOk = false;
     try {
       const start = performance.now();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), LATENCY_THRESHOLD);
+      const timeoutId = setTimeout(() => controller.abort(), OFFLINE_THRESHOLD);
 
       await fetch(PING_URL, {
         method: 'HEAD',
@@ -94,39 +121,62 @@ class ConnectivityEngine {
 
       clearTimeout(timeoutId);
       latency = Math.round(performance.now() - start);
+      pingOk = true;
     } catch {
-      // Ping failed — might still have cellular
-      const hasCellular = this.detectCellular();
-      this.updateState({
-        isOnline: false,
-        hasCellular,
-        mode: hasCellular ? 'sms' : 'offline',
-        latency: null,
-        lastChecked: Date.now(),
-      });
-      return this.state;
+      latency = null;
+      pingOk = false;
     }
 
-    // Get effective connection type
-    let effectiveType: string | null = null;
-    if ('connection' in navigator) {
-      const conn = (navigator as Navigator & { connection?: { effectiveType?: string } }).connection;
-      effectiveType = conn?.effectiveType || null;
+    if (pingOk && latency! < OFFLINE_THRESHOLD) {
+      this.consecutiveFailures = 0;
+      this.consecutiveSuccesses = Math.min(this.consecutiveSuccesses + 1, HYSTERESIS_COUNT);
+    } else {
+      this.consecutiveFailures += 1;
+      this.consecutiveSuccesses = 0;
     }
 
-    // Determine mode based on latency
-    let mode: ConnectivityMode = 'online';
-    if (latency > LATENCY_THRESHOLD) {
-      mode = this.detectCellular() ? 'sms' : 'offline';
+    const effectiveType =
+      'connection' in navigator
+        ? (navigator as Navigator & { connection?: { effectiveType?: string } }).connection?.effectiveType || null
+        : null;
+
+    let captivePortal = false;
+    let hasCellular = this.detectCellular();
+    let degraded = false;
+    let mode: ConnectivityMode;
+
+    if (pingOk && latency! < OFFLINE_THRESHOLD) {
+      if (this.consecutiveSuccesses >= 1) {
+        mode = 'online';
+        degraded = latency! >= DEGRADED_THRESHOLD;
+      } else {
+        mode = this.state.mode;
+        degraded = this.state.degraded;
+      }
+    } else {
+      if (this.consecutiveFailures >= HYSTERESIS_COUNT) {
+        captivePortal = !hasCellular && await this.checkCaptivePortal();
+        if (!captivePortal) {
+          mode = hasCellular ? 'sms' : 'offline';
+        } else {
+          mode = 'offline';
+        }
+      } else {
+        mode = this.state.mode;
+        degraded = this.state.degraded;
+        captivePortal = this.state.captivePortal;
+      }
     }
 
     this.updateState({
-      isOnline: true,
-      hasCellular: this.detectCellular(),
+      isOnline: mode === 'online',
+      hasCellular,
       mode,
       latency,
       effectiveType,
       lastChecked: Date.now(),
+      degraded,
+      captivePortal,
     });
 
     return this.state;
@@ -135,8 +185,6 @@ class ConnectivityEngine {
   private updateState(partial: Partial<ConnectivityState>) {
     const prevMode = this.state.mode;
     this.state = { ...this.state, ...partial };
-
-    // Notify listeners if mode changed
     if (prevMode !== this.state.mode || partial.latency !== undefined) {
       this.notifyListeners();
     }
@@ -148,7 +196,6 @@ class ConnectivityEngine {
 
   subscribe(fn: (state: ConnectivityState) => void): () => void {
     this.listeners.add(fn);
-    // Immediately call with current state
     fn({ ...this.state });
     return () => this.listeners.delete(fn);
   }
@@ -157,7 +204,6 @@ class ConnectivityEngine {
     return { ...this.state };
   }
 
-  // Force a specific mode (for testing/demo)
   forceMode(mode: ConnectivityMode) {
     this.updateState({ mode });
   }
@@ -170,7 +216,6 @@ class ConnectivityEngine {
   }
 }
 
-// Singleton instance
 let engine: ConnectivityEngine | null = null;
 
 export function getConnectivityEngine(): ConnectivityEngine {
@@ -194,11 +239,11 @@ export function getModeLabel(mode: ConnectivityMode): string {
 export function getModeColor(mode: ConnectivityMode): string {
   switch (mode) {
     case 'online':
-      return '#10b981'; // emerald
+      return '#10b981';
     case 'sms':
-      return '#f59e0b'; // amber
+      return '#f59e0b';
     case 'offline':
-      return '#ef4444'; // red
+      return '#ef4444';
   }
 }
 

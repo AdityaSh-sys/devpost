@@ -1,9 +1,7 @@
-// Chat Engine - Routes queries through the appropriate mode
-// Mode A: Online (Gemini API) → Mode B: SMS (Twilio) → Mode C: Offline (Local AI)
-
 import { type ConnectivityMode } from './connectivity';
 import { queryOfflineAI, type OfflineResponse } from './offline-ai';
 import { saveConversation, saveTelemetry } from './sync';
+import { db } from './db';
 
 export interface ChatMessage {
   id: string;
@@ -14,6 +12,8 @@ export interface ChatMessage {
   modelUsed: string;
   confidence?: number;
   isStreaming?: boolean;
+  pendingSms?: boolean;
+  smsLink?: string;
 }
 
 export interface ChatResponse {
@@ -22,18 +22,24 @@ export interface ChatResponse {
   mode: ConnectivityMode;
   latency: number;
   confidence?: number;
+  pendingSms?: boolean;
+  smsLink?: string;
 }
 
-// Online mode: Call Gemini API through our backend
 async function queryOnline(
   query: string,
   history: ChatMessage[]
 ): Promise<ChatResponse> {
   const start = performance.now();
 
+  const sessionId = history.length > 0 ? history[0].id : crypto.randomUUID();
+
   const response = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Id': sessionId,
+    },
     body: JSON.stringify({
       query,
       history: history.slice(-10).map((m) => ({
@@ -58,32 +64,33 @@ async function queryOnline(
   };
 }
 
-// SMS mode: Send query via Twilio SMS
 async function querySMS(query: string): Promise<ChatResponse> {
-  const start = performance.now();
+  const phoneNumber = process.env.NEXT_PUBLIC_TWILIO_PHONE_NUMBER || '+17072225051';
+  const encodedQuery = encodeURIComponent(query);
+  const smsLink = `sms:${phoneNumber}?body=${encodedQuery}`;
 
-  const response = await fetch('/api/sms/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+  await db.offlineQueue.add({
+    query,
+    timestamp: Date.now(),
+    status: 'pending',
   });
 
-  if (!response.ok) {
-    throw new Error(`SMS API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const latency = Math.round(performance.now() - start);
-
   return {
-    content: data.response || '📱 Query sent via SMS. Response will arrive shortly...',
-    modelUsed: 'Gemini via SMS',
+    content: `📱 **SMS Mode Active**
+
+I'm currently in SMS Fallback mode because there's no internet connection.
+
+Your question has been prepared for SMS delivery. Tap the button below to send it via your phone's messaging app. The AI response will arrive as a text message.
+
+> "${query}"`,
+    modelUsed: 'SMS Fallback',
     mode: 'sms',
-    latency,
+    latency: 0,
+    pendingSms: true,
+    smsLink,
   };
 }
 
-// Offline mode: Use local AI engine
 async function queryOffline(query: string): Promise<ChatResponse> {
   const start = performance.now();
 
@@ -99,7 +106,6 @@ async function queryOffline(query: string): Promise<ChatResponse> {
   };
 }
 
-// Main chat function with automatic fallback
 export async function sendMessage(
   query: string,
   mode: ConnectivityMode,
@@ -122,13 +128,7 @@ export async function sendMessage(
         break;
 
       case 'sms':
-        try {
-          response = await querySMS(query);
-        } catch {
-          console.warn('SMS mode failed, falling back to offline');
-          actualMode = 'offline';
-          response = await queryOffline(query);
-        }
+        response = await querySMS(query);
         break;
 
       case 'offline':
@@ -139,7 +139,6 @@ export async function sendMessage(
         response = await queryOffline(query);
     }
   } catch (error) {
-    // Ultimate fallback
     response = {
       content:
         '⚠️ All communication modes are currently unavailable. Your message has been queued and will be processed when connectivity is restored.',
@@ -149,10 +148,8 @@ export async function sendMessage(
     };
   }
 
-  // Save conversation locally
   await saveConversation(query, response.content, actualMode, response.modelUsed);
 
-  // Save telemetry
   await saveTelemetry('chat_query', response.latency, {
     mode: actualMode,
     modelUsed: response.modelUsed,
@@ -163,13 +160,14 @@ export async function sendMessage(
   return response;
 }
 
-// Create a new message object
 export function createMessage(
   role: 'user' | 'assistant' | 'system',
   content: string,
   mode: ConnectivityMode,
   modelUsed: string = '',
-  confidence?: number
+  confidence?: number,
+  pendingSms?: boolean,
+  smsLink?: string
 ): ChatMessage {
   return {
     id: crypto.randomUUID(),
@@ -179,5 +177,7 @@ export function createMessage(
     mode,
     modelUsed,
     confidence,
+    pendingSms,
+    smsLink,
   };
 }

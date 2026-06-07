@@ -10,6 +10,7 @@ export default function SyncIndicator() {
     lastSyncTime: null,
     isSyncing: false,
     error: null,
+    conflicts: 0,
   });
   const [showDetails, setShowDetails] = useState(false);
 
@@ -89,6 +90,12 @@ export default function SyncIndicator() {
               <span>Last Sync:</span>
               <span>{formatTime(status.lastSyncTime)}</span>
             </div>
+            {status.conflicts > 0 && (
+              <div className="sync-row conflict">
+                <span>Conflicts:</span>
+                <span className="conflict-count">{status.conflicts} pending</span>
+              </div>
+            )}
           </div>
           {totalPending > 0 && (
             <button
