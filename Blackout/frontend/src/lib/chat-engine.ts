@@ -1,5 +1,5 @@
 // Chat Engine - Routes queries through the appropriate mode
-// Mode A: Online (Gemini API) → Mode B: SMS (Twilio) → Mode C: Offline (Local AI)
+// Mode A: Online (Gemini API) → Mode B: Offline (Local AI)
 
 import { type ConnectivityMode } from './connectivity';
 import { queryOfflineAI, type OfflineResponse } from './offline-ai';
@@ -14,6 +14,8 @@ export interface ChatMessage {
   modelUsed: string;
   confidence?: number;
   isStreaming?: boolean;
+  spanId?: string;
+  traceId?: string;
 }
 
 export interface ChatResponse {
@@ -22,6 +24,8 @@ export interface ChatResponse {
   mode: ConnectivityMode;
   latency: number;
   confidence?: number;
+  spanId?: string;
+  traceId?: string;
 }
 
 // Online mode: Call Gemini API through our backend
@@ -55,39 +59,21 @@ async function queryOnline(
     modelUsed: data.model || 'Gemini 2.5 Flash Lite',
     mode: 'online',
     latency,
+    spanId: data.span_id ?? undefined,
+    traceId: data.trace_id ?? undefined,
   };
 }
 
-// SMS mode: Send query via Twilio SMS
-async function querySMS(query: string): Promise<ChatResponse> {
+// Offline mode: Use local AI engine (Gemma via backend, fallback to KB)
+async function queryOffline(query: string, history?: ChatMessage[]): Promise<ChatResponse> {
   const start = performance.now();
 
-  const response = await fetch('/api/sms/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  });
+  const chatHistory = history?.slice(-10).map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
 
-  if (!response.ok) {
-    throw new Error(`SMS API error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  const latency = Math.round(performance.now() - start);
-
-  return {
-    content: data.response || '📱 Query sent via SMS. Response will arrive shortly...',
-    modelUsed: 'Gemini via SMS',
-    mode: 'sms',
-    latency,
-  };
-}
-
-// Offline mode: Use local AI engine
-async function queryOffline(query: string): Promise<ChatResponse> {
-  const start = performance.now();
-
-  const result: OfflineResponse = await queryOfflineAI(query);
+  const result: OfflineResponse = await queryOfflineAI(query, chatHistory);
   const latency = Math.round(performance.now() - start);
 
   return {
@@ -96,6 +82,8 @@ async function queryOffline(query: string): Promise<ChatResponse> {
     mode: 'offline',
     latency,
     confidence: result.confidence,
+    spanId: result.spanId,
+    traceId: result.traceId,
   };
 }
 
@@ -117,26 +105,13 @@ export async function sendMessage(
         } catch {
           console.warn('Online mode failed, falling back to offline');
           actualMode = 'offline';
-          response = await queryOffline(query);
-        }
-        break;
-
-      case 'sms':
-        try {
-          response = await querySMS(query);
-        } catch {
-          console.warn('SMS mode failed, falling back to offline');
-          actualMode = 'offline';
-          response = await queryOffline(query);
+          response = await queryOffline(query, history);
         }
         break;
 
       case 'offline':
-        response = await queryOffline(query);
+        response = await queryOffline(query, history);
         break;
-
-      default:
-        response = await queryOffline(query);
     }
   } catch (error) {
     // Ultimate fallback
@@ -152,6 +127,9 @@ export async function sendMessage(
   // Save conversation locally
   await saveConversation(query, response.content, actualMode, response.modelUsed);
 
+  // Check for KB updates periodically
+  checkKBUpdatePeriodic();
+
   // Save telemetry
   await saveTelemetry('chat_query', response.latency, {
     mode: actualMode,
@@ -163,13 +141,132 @@ export async function sendMessage(
   return response;
 }
 
+// Periodic KB update check
+let _localQueryCount = 0;
+let _kbCheckDone = false;
+
+async function checkKBUpdatePeriodic() {
+  if (!_kbCheckDone) {
+    _kbCheckDone = true;
+    try {
+      const { checkAndApplyUpdate } = await import('./kb-update');
+      const result = await checkAndApplyUpdate();
+      if (result.updated) {
+        console.log(`KB auto-update: ${result.imported} new entries (v${result.currentVersion})`);
+      }
+    } catch {}
+  }
+
+  _localQueryCount++;
+  if (_localQueryCount % 10 === 0) {
+    try {
+      const { checkAndApplyUpdate } = await import('./kb-update');
+      checkAndApplyUpdate().then((result) => {
+        if (result.updated) {
+          console.log(`KB auto-update: ${result.imported} new entries (v${result.currentVersion})`);
+        }
+      });
+    } catch {}
+  }
+}
+
+export { _localQueryCount as getLocalQueryCount };
+
+// Send feedback (thumbs up/down) for a chat message
+// Stores locally in IndexedDB and async-syncs to Phoenix when possible
+export async function sendFeedback(
+  message: ChatMessage,
+  label: 'thumbs-up' | 'thumbs-down',
+  comment?: string
+): Promise<boolean> {
+  const score = label === 'thumbs-up' ? 1.0 : 0.0;
+
+  // Store locally first (always works)
+  try {
+    const { db } = await import('./db');
+    await db.feedbackQueue.add({
+      messageId: message.id,
+      query: message.content.slice(0, 200),
+      label,
+      score,
+      comment,
+      spanId: message.spanId,
+      traceId: message.traceId,
+      timestamp: Date.now(),
+      synced: false,
+    });
+  } catch {}
+
+  // Try sending to Phoenix if we have span/trace IDs
+  if (message.spanId && message.traceId) {
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          span_id: message.spanId,
+          trace_id: message.traceId,
+          label,
+          score,
+          comment: comment || null,
+        }),
+      });
+      const data = await response.json();
+      if (data.status === 'ok') {
+        try {
+          const { db } = await import('./db');
+          await db.feedbackQueue.where({ messageId: message.id }).modify({ synced: true });
+        } catch {}
+      }
+    } catch {}
+  }
+
+  return true; // Always succeed for UI highlight
+}
+
+// Retry sending pending feedback to Phoenix (call when coming online)
+export async function syncPendingFeedback(): Promise<number> {
+  try {
+    const { db } = await import('./db');
+    const pending = await db.feedbackQueue.where({ synced: false }).toArray();
+    let synced = 0;
+    for (const item of pending) {
+      if (item.spanId && item.traceId) {
+        try {
+          const response = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              span_id: item.spanId,
+              trace_id: item.traceId,
+              label: item.label,
+              score: item.score,
+              comment: item.comment || null,
+            }),
+          });
+          const data = await response.json();
+          if (data.status === 'ok') {
+            await db.feedbackQueue.where({ messageId: item.messageId }).modify({ synced: true });
+            synced++;
+          }
+        } catch {}
+      }
+    }
+    return synced;
+  } catch {
+    return 0;
+  }
+}
+
 // Create a new message object
 export function createMessage(
   role: 'user' | 'assistant' | 'system',
   content: string,
   mode: ConnectivityMode,
   modelUsed: string = '',
-  confidence?: number
+  confidence?: number,
+  spanId?: string,
+  traceId?: string,
 ): ChatMessage {
   return {
     id: crypto.randomUUID(),
@@ -179,5 +276,7 @@ export function createMessage(
     mode,
     modelUsed,
     confidence,
+    spanId,
+    traceId,
   };
 }

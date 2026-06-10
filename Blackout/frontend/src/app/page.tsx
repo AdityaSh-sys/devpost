@@ -26,8 +26,15 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+    let wasOffline = false;
     const engine = getConnectivityEngine();
     const unsubscribe = engine.subscribe((state) => {
+      const nowOffline = state.mode === 'offline';
+      if (wasOffline && !nowOffline) {
+        import('@/lib/kb-update').then(m => m.checkKBUpdateNow());
+        import('@/lib/chat-engine').then(m => m.syncPendingFeedback());
+      }
+      wasOffline = nowOffline;
       setCurrentMode(state.mode);
     });
 
@@ -50,7 +57,9 @@ export default function Home() {
           response.content,
           response.mode,
           response.modelUsed,
-          response.confidence
+          response.confidence,
+          response.spanId,
+          response.traceId
         );
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (error) {

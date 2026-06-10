@@ -1,10 +1,50 @@
 // Offline AI Engine
-// Vector retrieval + simple response matching for completely offline mode
-// In production, this would use WebLLM with a quantized model
+// Tries local Gemma model (via Ollama backend) first, falls back to TF-IDF KB
 
 import { db, seedKnowledgeBase, type KnowledgeSnippet } from './db';
 
-// Simple text embedding using TF-IDF-like approach
+let _modelChecked = false;
+let _localModelAvailable = false;
+
+export async function checkLocalModel(): Promise<boolean> {
+  if (_modelChecked) return _localModelAvailable;
+  _modelChecked = true;
+  try {
+    const resp = await fetch('/api/chat/model/status');
+    const data = await resp.json();
+    _localModelAvailable = data.available;
+  } catch {
+    _localModelAvailable = false;
+  }
+  return _localModelAvailable;
+}
+
+async function queryLocalModel(query: string, history: { role: string; content: string }[] = []): Promise<OfflineResponse> {
+  const start = performance.now();
+
+  const response = await fetch('/api/chat/offline', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, history }),
+    signal: AbortSignal.timeout(60000),
+  });
+
+  if (!response.ok) throw new Error('Local model unavailable');
+
+  const data = await response.json();
+  const latency = Math.round(performance.now() - start);
+
+  return {
+    answer: data.response,
+    confidence: 0.9,
+    source: 'generated',
+    spanId: data.span_id ?? undefined,
+    traceId: data.trace_id ?? undefined,
+    latency,
+  };
+}
+
+// TF-IDF fallback (same as before)
 function tokenize(text: string): string[] {
   return text
     .toLowerCase()
@@ -17,14 +57,12 @@ function computeEmbedding(text: string): number[] {
   const tokens = tokenize(text);
   const vocab = new Map<string, number>();
 
-  // Build vocabulary index
   tokens.forEach((token) => {
     if (!vocab.has(token)) {
       vocab.set(token, vocab.size);
     }
   });
 
-  // Create sparse vector
   const vector = new Array(Math.max(vocab.size, 100)).fill(0);
   tokens.forEach((token) => {
     const idx = vocab.get(token)!;
@@ -33,7 +71,6 @@ function computeEmbedding(text: string): number[] {
     }
   });
 
-  // Normalize
   const magnitude = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
   if (magnitude > 0) {
     return vector.map((v) => v / magnitude);
@@ -57,7 +94,6 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return denominator === 0 ? 0 : dotProduct / denominator;
 }
 
-// Simple keyword matching as fallback
 function keywordMatch(query: string, snippet: KnowledgeSnippet): number {
   const queryTokens = new Set(tokenize(query));
   const snippetTokens = new Set(tokenize(snippet.question + ' ' + snippet.answer));
@@ -75,12 +111,13 @@ export interface OfflineResponse {
   confidence: number;
   source: 'vector_search' | 'keyword_match' | 'generated';
   snippetId?: string;
+  latency?: number;
+  spanId?: string;
+  traceId?: string;
 }
 
-export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
-  // Ensure knowledge base is seeded
+async function queryOfflineKB(query: string): Promise<OfflineResponse> {
   await seedKnowledgeBase();
-
   const snippets = await db.knowledgeSnippets.toArray();
 
   if (snippets.length === 0) {
@@ -91,17 +128,14 @@ export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
     };
   }
 
-  // Try keyword matching first (more reliable for small knowledge bases)
   const keywordScores = snippets.map((snippet) => ({
     snippet,
     score: keywordMatch(query, snippet),
   }));
 
   keywordScores.sort((a, b) => b.score - a.score);
-
   const bestKeyword = keywordScores[0];
 
-  // If we have a decent keyword match, use it
   if (bestKeyword.score >= 0.3) {
     return {
       answer: bestKeyword.snippet.answer,
@@ -111,7 +145,6 @@ export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
     };
   }
 
-  // Try vector similarity if embeddings exist
   const queryEmbedding = computeEmbedding(query);
   const vectorScores = snippets
     .filter((s) => s.embedding && s.embedding.length > 0)
@@ -134,7 +167,6 @@ export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
     }
   }
 
-  // Fallback: use the best keyword match even if low confidence
   if (bestKeyword.score > 0) {
     return {
       answer: `[Offline Mode - Low Confidence]\n\n${bestKeyword.snippet.answer}\n\n⚠️ This answer may not be directly relevant to your question. A more accurate response will be provided once connectivity is restored.`,
@@ -144,7 +176,6 @@ export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
     };
   }
 
-  // No match at all
   return {
     answer: generateFallbackResponse(query),
     confidence: 0.1,
@@ -152,10 +183,25 @@ export async function queryOfflineAI(query: string): Promise<OfflineResponse> {
   };
 }
 
+export async function queryOfflineAI(query: string, history?: { role: string; content: string }[]): Promise<OfflineResponse> {
+  // Try local Gemma model first
+  try {
+    const available = await checkLocalModel();
+    if (available) {
+      const result = await queryLocalModel(query, history);
+      return result;
+    }
+  } catch {
+    console.log('Local model unavailable, falling back to KB');
+  }
+
+  // Fall back to KB
+  return queryOfflineKB(query);
+}
+
 function generateFallbackResponse(query: string): string {
   const queryLower = query.toLowerCase();
 
-  // Simple intent detection for common offline queries
   if (queryLower.includes('help') || queryLower.includes('emergency')) {
     return "🆘 **Emergency Offline Response**\n\nI'm operating in offline mode with limited knowledge. For emergencies:\n\n1. **Medical**: Call local emergency number if possible\n2. **Safety**: Move to a safe location\n3. **First Aid**: Apply pressure to wounds, keep breathing steady\n\nYour question has been queued and will be answered fully when connectivity returns.";
   }
@@ -167,15 +213,7 @@ function generateFallbackResponse(query: string): string {
   return `📴 **Offline Mode**\n\nI'm currently operating without internet connectivity. Your question "${query.substring(0, 50)}..." has been saved and will be answered when connectivity is restored.\n\n**Available offline topics**: First Aid, Emergency Procedures, Water Purification, Shelter Building, Survival Skills.\n\nTry asking about these topics for immediate offline answers!`;
 }
 
-export async function getModelStatus(): Promise<{
-  isReady: boolean;
-  modelName: string;
-  status: string;
-}> {
-  // In production, this would check WebLLM model status
-  return {
-    isReady: true,
-    modelName: 'Blackout Local (Knowledge Base)',
-    status: 'ready',
-  };
+export async function resetModelCheck(): Promise<void> {
+  _modelChecked = false;
+  _localModelAvailable = false;
 }

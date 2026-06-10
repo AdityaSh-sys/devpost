@@ -4,8 +4,8 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Blackout — AI That Works Everywhere',
   description:
-    'Connectivity Spectrum AI that intelligently routes queries across Internet, SMS, and Offline modes. Never lose access to AI assistance.',
-  keywords: ['AI', 'offline', 'SMS', 'connectivity', 'emergency', 'assistant'],
+    'Connectivity Spectrum AI that intelligently routes queries across Online and Offline modes. Never lose access to AI assistance.',
+  keywords: ['AI', 'offline', 'connectivity', 'emergency', 'assistant'],
   manifest: '/manifest.json',
   icons: {
     icon: '/favicon.svg',

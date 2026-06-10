@@ -7,7 +7,7 @@ export interface Conversation {
   id?: string;
   query: string;
   response: string;
-  connectivityState: 'online' | 'sms' | 'offline';
+  connectivityState: 'online' | 'offline';
   modelUsed: string;
   timestamp: number;
   synced: boolean;
@@ -60,6 +60,19 @@ export interface CachedModel {
   progress: number;
 }
 
+export interface FeedbackQueueItem {
+  id?: number;
+  messageId: string;
+  query: string;
+  label: 'thumbs-up' | 'thumbs-down';
+  score: number;
+  comment?: string;
+  spanId?: string;
+  traceId?: string;
+  timestamp: number;
+  synced: boolean;
+}
+
 export class BlackoutDB extends Dexie {
   conversations!: Table<Conversation>;
   knowledgeSnippets!: Table<KnowledgeSnippet>;
@@ -67,6 +80,7 @@ export class BlackoutDB extends Dexie {
   syncConflicts!: Table<SyncConflict>;
   telemetry!: Table<TelemetryEvent>;
   cachedModels!: Table<CachedModel>;
+  feedbackQueue!: Table<FeedbackQueueItem>;
 
   constructor() {
     super('BlackoutDB');
@@ -77,6 +91,15 @@ export class BlackoutDB extends Dexie {
       syncConflicts: '++id, resolutionStatus, conversationId',
       telemetry: '++id, eventType, timestamp, synced',
       cachedModels: '++id, modelName, status',
+    });
+    this.version(2).stores({
+      conversations: '++id, timestamp, connectivityState, synced',
+      knowledgeSnippets: '++id, category',
+      offlineQueue: '++id, status, timestamp',
+      syncConflicts: '++id, resolutionStatus, conversationId',
+      telemetry: '++id, eventType, timestamp, synced',
+      cachedModels: '++id, modelName, status',
+      feedbackQueue: '++id, messageId, label, synced, timestamp',
     });
   }
 }

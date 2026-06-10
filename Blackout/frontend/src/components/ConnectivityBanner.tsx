@@ -14,7 +14,6 @@ export default function ConnectivityBanner() {
   const [state, setState] = useState<ConnectivityState>({
     mode: 'online',
     isOnline: true,
-    hasCellular: false,
     latency: null,
     effectiveType: null,
     lastChecked: Date.now(),
@@ -104,19 +103,13 @@ export default function ConnectivityBanner() {
                 <span>{state.latency}ms</span>
               </div>
             )}
-            <div className="info-row">
-              <span>Cellular:</span>
-              <span className={state.hasCellular ? 'status-on' : 'status-off'}>
-                {state.hasCellular ? 'Available' : 'Not detected'}
-              </span>
-            </div>
           </div>
 
           <div className="connectivity-demo">
             <h4>🎮 Demo Mode</h4>
             <p className="demo-hint">Switch modes to test different connectivity states</p>
             <div className="demo-buttons">
-              {(['online', 'sms', 'offline'] as ConnectivityMode[]).map((mode) => (
+              {(['online', 'offline'] as ConnectivityMode[]).map((mode) => (
                 <button
                   key={mode}
                   className={`demo-btn ${demoMode === mode ? 'active' : ''}`}

@@ -34,7 +34,6 @@ uvicorn main:app --reload
 | Service | Purpose | Get It |
 |---------|---------|--------|
 | Gemini API | Online AI | [Google AI Studio](https://aistudio.google.com/) |
-| Twilio | SMS Transport | [Twilio Console](https://console.twilio.com/) |
 | MongoDB Atlas | Cloud Database | [MongoDB Atlas](https://cloud.mongodb.com/) |
 
 > **Note:** The app works in demo mode without any API keys!

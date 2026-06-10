@@ -290,6 +290,28 @@ body {
 
 .message-confidence { font-family: var(--font-mono); font-size: 10px; }
 
+.feedback-buttons { display: inline-flex; gap: 2px; margin-left: 4px; }
+
+.feedback-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: all 0.15s ease; padding: 0;
+}
+
+.feedback-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary); color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.feedback-btn.active { border-color: currentColor; }
+
+.feedback-btn.thumbs-up.active { color: var(--green); background: rgba(16, 185, 129, 0.1); }
+
+.feedback-btn.thumbs-down.active { color: var(--red); background: rgba(239, 68, 68, 0.1); }
+
+.feedback-btn:disabled { opacity: 0.5; cursor: default; }
+
 /* Loading dots */
 .loading-dots { display: flex; gap: 6px; padding: 16px !important; }
 
@@ -599,6 +621,46 @@ body {
 .model-size { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
 
 .model-actions { margin-top: 12px; }
+
+.update-section {
+  margin-top: 16px; padding: 14px; border-radius: var(--radius);
+  border: 1px dashed var(--border); background: color-mix(in srgb, var(--accent-primary) 3%, transparent);
+}
+
+.update-section h4 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+
+.update-status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text-secondary); padding: 8px 0;
+}
+
+.update-status.idle { color: var(--green); }
+.update-status.done { color: var(--green); font-weight: 600; }
+.update-status.error { color: #ef4444; }
+
+.update-spinner {
+  width: 14px; height: 14px; border: 2px solid var(--border);
+  border-top-color: var(--accent-primary); border-radius: 50%;
+  animation: spin 0.8s linear infinite; display: inline-block;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.update-available {
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.update-info {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--text-secondary);
+}
+
+.update-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  background: var(--accent-primary); color: white;
+}
+
+.update-entries { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
 .download-btn {
   width: 100%; padding: 10px; border-radius: 8px; border: none;

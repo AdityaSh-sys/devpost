@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { type ChatMessage } from '@/lib/chat-engine';
+import { type ChatMessage, sendFeedback } from '@/lib/chat-engine';
 import { getModeColor, getModeIcon, getModeLabel, type ConnectivityMode } from '@/lib/connectivity';
 
 interface ChatWindowProps {
@@ -19,6 +19,7 @@ export default function ChatWindow({
 }: ChatWindowProps) {
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [ratedMessages, setRatedMessages] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -165,7 +166,7 @@ export default function ChatWindow({
               </svg>
             </div>
             <h2>Welcome to Blackout</h2>
-            <p>AI that works everywhere — online, via SMS, or completely offline.</p>
+            <p>AI that works everywhere — online or completely offline.</p>
             <div className="empty-suggestions">
               <button onClick={() => onSendMessage('What is first aid for a deep cut?')} className="suggestion-btn">
                 🩹 First Aid Tips
@@ -217,6 +218,38 @@ export default function ChatWindow({
                         {Math.round(msg.confidence * 100)}% confidence
                       </span>
                     )}
+                    <span className="feedback-buttons">
+                      <button
+                        className={`feedback-btn thumbs-up ${ratedMessages.has(msg.id + '-up') ? 'active' : ''}`}
+                        onClick={async () => {
+                          if (ratedMessages.has(msg.id + '-up') || ratedMessages.has(msg.id + '-down')) return;
+                          setRatedMessages(prev => new Set(prev).add(msg.id + '-up'));
+                          const ok = await sendFeedback(msg, 'thumbs-up');
+                          if (!ok) setRatedMessages(prev => { const next = new Set(prev); next.delete(msg.id + '-up'); return next; });
+                        }}
+                        title="Helpful"
+                        disabled={ratedMessages.has(msg.id + '-up') || ratedMessages.has(msg.id + '-down')}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={ratedMessages.has(msg.id + '-up') ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+                        </svg>
+                      </button>
+                      <button
+                        className={`feedback-btn thumbs-down ${ratedMessages.has(msg.id + '-down') ? 'active' : ''}`}
+                        onClick={async () => {
+                          if (ratedMessages.has(msg.id + '-up') || ratedMessages.has(msg.id + '-down')) return;
+                          setRatedMessages(prev => new Set(prev).add(msg.id + '-down'));
+                          const ok = await sendFeedback(msg, 'thumbs-down');
+                          if (!ok) setRatedMessages(prev => { const next = new Set(prev); next.delete(msg.id + '-down'); return next; });
+                        }}
+                        title="Not helpful"
+                        disabled={ratedMessages.has(msg.id + '-up') || ratedMessages.has(msg.id + '-down')}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill={ratedMessages.has(msg.id + '-down') ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2">
+                          <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+                        </svg>
+                      </button>
+                    </span>
                   </>
                 )}
               </div>
