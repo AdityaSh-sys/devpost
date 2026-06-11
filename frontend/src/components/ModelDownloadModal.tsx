@@ -32,34 +32,35 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
     let available = false;
     let ollama = false;
 
-    try {
-      const resp = await fetch('/api/chat/model/status');
-      const data = await resp.json();
-      available = data.available;
-      ollama = data.ollama_connected;
-    } catch {
-      available = false;
-      ollama = false;
-    }
+    await new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', 'http://localhost:11434/api/tags', true);
+      xhr.timeout = 3000;
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            ollama = true;
+            available = !!(data.models && data.models.some((m: any) => m.name === 'gemma2:2b'));
+          } catch {}
+        }
+        resolve();
+      };
+      xhr.onerror = () => resolve();
+      xhr.ontimeout = () => resolve();
+      xhr.send();
+    });
 
     if (!ollama) {
-      ollama = await new Promise<boolean>((resolve) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', 'http://localhost:11434/api/tags', true);
-        xhr.timeout = 2000;
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              available = !!(data.models && data.models.some((m: any) => m.name === 'gemma2:2b'));
-            } catch {}
-          }
-          resolve(true);
-        };
-        xhr.onerror = () => resolve(false);
-        xhr.ontimeout = () => resolve(false);
-        xhr.send();
-      });
+      try {
+        const resp = await fetch('/api/chat/model/status');
+        const data = await resp.json();
+        available = data.available;
+        ollama = data.ollama_connected;
+      } catch {
+        available = false;
+        ollama = false;
+      }
     }
 
     setModelAvailable(available);
@@ -142,6 +143,12 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
   };
 
   const handleDownloadModel = async () => {
+    const local = await checkModelStatus();
+    if (local.available) {
+      setModelDownloadStatus('done');
+      return;
+    }
+
     setModelDownloadStatus('downloading');
     setModelError('');
 
@@ -166,7 +173,11 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
     } catch (e: any) {
       clearInterval(pollInterval);
       setModelDownloadStatus('error');
-      setModelError(e.message || 'Download failed. Ensure Ollama is installed and running.');
+      setModelError(
+        local.ollama
+          ? 'Model is installed locally but backend download failed. Run: ollama pull gemma2:2b'
+          : (e.message || 'Download failed. Ensure Ollama is installed and running.')
+      );
     }
   };
 
