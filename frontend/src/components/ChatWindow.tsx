@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { type ChatMessage, sendFeedback } from '@/lib/chat-engine';
 import { type ConnectivityMode } from '@/lib/connectivity';
 import { maskModelName } from '@/lib/model-utils';
+import MarkdownRenderer from './MarkdownRenderer';
 
 interface ChatWindowProps {
   messages: ChatMessage[];
@@ -187,9 +188,7 @@ export default function ChatWindow({
                     : 'rounded-tr-sm border border-on-tertiary-container/30 bg-on-tertiary-container/5'
                 }`}
               >
-                <div className="text-body-md font-body-md text-on-surface leading-relaxed whitespace-pre-wrap">
-                  {msg.content}
-                </div>
+                <MarkdownRenderer content={msg.content} />
                 <div className="flex items-center gap-3 mt-3 text-xs text-on-surface-variant flex-wrap">
                   <span>{formatTimestamp(msg.timestamp)}</span>
                   {msg.role === 'assistant' && (
