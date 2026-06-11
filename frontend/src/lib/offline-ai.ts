@@ -6,6 +6,7 @@ let _serverOllamaSeen = false;
 const MODEL_CHECK_TTL = 30000;
 
 const OLLAMA_URL = 'http://localhost:11434';
+const PROXY_URL = 'http://localhost:8081';
 
 async function directOllamaFetch(path: string, init?: RequestInit): Promise<Response | null> {
   try {
@@ -23,6 +24,17 @@ async function directOllamaFetch(path: string, init?: RequestInit): Promise<Resp
     } catch {
       return null;
     }
+  }
+}
+
+async function proxyFetch(path: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(`${PROXY_URL}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -55,6 +67,13 @@ export async function checkLocalModel(force = false): Promise<boolean> {
   if (resp && (resp.ok || resp.type === 'opaque')) {
     _localModelAvailable = true;
     _serverOllamaSeen = false;
+    return true;
+  }
+
+  const proxyResp = await proxyFetch('/api/tags');
+  if (proxyResp && proxyResp.ok) {
+    _localModelAvailable = true;
+    _serverOllamaSeen = false;
   }
   return _localModelAvailable;
 }
@@ -78,13 +97,19 @@ async function queryLocalModelDirect(query: string, history: { role: string; con
     { role: 'user', content: query },
   ];
 
-  const resp = await directOllamaFetch('/api/chat', {
+  let resp = await directOllamaFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: 'gemma2:2b', messages, stream: false }),
   });
+  if (!resp || !resp.ok || resp.type === 'opaque') {
+    resp = await proxyFetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'gemma2:2b', messages, stream: false }),
+    });
+  }
   if (!resp || !resp.ok) return null;
-  if (resp.type === 'opaque') return null;
 
   const data = await resp.json();
   const latency = Math.round(performance.now() - start);

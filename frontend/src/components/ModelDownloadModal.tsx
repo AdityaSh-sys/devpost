@@ -23,10 +23,18 @@ async function detectLocalOllama(): Promise<{ ollama: boolean; available: boolea
   } catch {
     try {
       const resp = await fetch('http://localhost:11434/api/tags', { mode: 'no-cors', signal: AbortSignal.timeout(2000) });
-      return { ollama: resp.type === 'opaque' || resp.ok, available: false };
+      if (resp.type === 'opaque' || resp.ok) return { ollama: true, available: false };
     } catch {
-      return { ollama: false, available: false };
     }
+  }
+  try {
+    const resp = await fetch('http://localhost:8081/api/tags', { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) return { ollama: false, available: false };
+    const data = await resp.json();
+    const models: { name: string }[] = data.models || [];
+    return { ollama: true, available: models.some((m) => m.name === 'gemma2:2b') };
+  } catch {
+    return { ollama: false, available: false };
   }
 }
 
@@ -220,7 +228,7 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
             Ollama couldn&apos;t be auto-detected (browser security blocks localhost requests from HTTPS sites).
           </p>
           <p className="text-body-sm font-body-sm text-on-surface-variant">
-            If you have Ollama installed, click the button below to confirm.
+            If you have Ollama installed, click the button below to confirm. Or run the local proxy: <code className="font-mono-status">python backend/ollama-proxy.py</code>
           </p>
         </div>
       </div>
