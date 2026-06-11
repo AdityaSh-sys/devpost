@@ -29,17 +29,33 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
   const [currentStep, setCurrentStep] = useState<SetupStep>('ollama');
 
   const checkModelStatus = useCallback(async () => {
+    let available = false;
+    let ollama = false;
+
     try {
       const resp = await fetch('/api/chat/model/status');
       const data = await resp.json();
-      setModelAvailable(data.available);
-      setOllamaConnected(data.ollama_connected);
-      return { available: data.available, ollama: data.ollama_connected };
+      available = data.available;
+      ollama = data.ollama_connected;
     } catch {
-      setModelAvailable(false);
-      setOllamaConnected(false);
-      return { available: false, ollama: false };
+      available = false;
+      ollama = false;
     }
+
+    if (!ollama) {
+      try {
+        const direct = await fetch('http://localhost:11434/api/tags', {
+          mode: 'no-cors',
+          signal: AbortSignal.timeout(2000),
+        });
+        ollama = direct.type === 'opaque' || direct.ok;
+      } catch {
+      }
+    }
+
+    setModelAvailable(available);
+    setOllamaConnected(ollama);
+    return { available, ollama };
   }, []);
 
   useEffect(() => {
