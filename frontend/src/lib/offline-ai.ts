@@ -2,6 +2,7 @@ import { db, seedKnowledgeBase, type KnowledgeSnippet } from './db';
 
 let _localModelAvailable = false;
 let _modelCheckTimestamp = 0;
+let _serverOllamaSeen = false;
 const MODEL_CHECK_TTL = 30000;
 
 export async function checkLocalModel(force = false): Promise<boolean> {
@@ -10,14 +11,33 @@ export async function checkLocalModel(force = false): Promise<boolean> {
     return _localModelAvailable;
   }
   _modelCheckTimestamp = now;
+
+  _serverOllamaSeen = false;
+
   try {
     const resp = await fetch('/api/chat/model/status');
     const data = await resp.json();
     _localModelAvailable = data.available;
+    _serverOllamaSeen = data.available;
   } catch {
     _localModelAvailable = false;
   }
+  if (_localModelAvailable) return true;
+
+  _localModelAvailable = await _checkLocalOllamaDirect();
   return _localModelAvailable;
+}
+
+async function _checkLocalOllamaDirect(): Promise<boolean> {
+  try {
+    const resp = await fetch('http://localhost:11434/api/tags', {
+      mode: 'no-cors',
+      signal: AbortSignal.timeout(2000),
+    });
+    return resp.type === 'opaque' || resp.ok;
+  } catch {
+    return false;
+  }
 }
 
 const EMERGENCY_KEYWORDS = [
@@ -209,7 +229,7 @@ export async function queryOfflineAI(
     }
   }
 
-  if (modelAvailable) {
+  if (modelAvailable && _serverOllamaSeen) {
     try {
       const result = await queryLocalModel(query, history);
       return { ...result, modelAvailable: true };
