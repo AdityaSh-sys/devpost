@@ -717,6 +717,10 @@ def get_tracer():
 
 # ============ Health Check ============
 
+@app.get("/")
+async def root():
+    return {"app": "Blackout API", "version": "1.1.0", "status": "running", "docs": "/docs"}
+
 @app.get("/health")
 async def health():
     return {
