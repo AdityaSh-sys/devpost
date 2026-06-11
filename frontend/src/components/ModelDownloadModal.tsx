@@ -13,6 +13,25 @@ interface ModelDownloadModalProps {
 
 type SetupStep = 'ollama' | 'download' | 'ready';
 
+async function detectLocalOllama(): Promise<{ ollama: boolean; available: boolean }> {
+  try {
+    const resp = await fetch('http://localhost:11434/api/tags', { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) return { ollama: false, available: false };
+    const data = await resp.json();
+    const models: { name: string }[] = data.models || [];
+    return { ollama: true, available: models.some((m) => m.name === 'gemma2:2b') };
+  } catch {
+    try {
+      const resp = await fetch('http://localhost:11434/api/tags', { mode: 'no-cors', signal: AbortSignal.timeout(2000) });
+      return { ollama: resp.type === 'opaque' || resp.ok, available: false };
+    } catch {
+      return { ollama: false, available: false };
+    }
+  }
+}
+
+const LOCAL_OLLAMA_KEY = 'blackout_ollama_confirmed';
+
 export default function ModelDownloadModal({ isOpen, onClose, setupMode = false }: ModelDownloadModalProps) {
   const [kbInfo, setKbInfo] = useState<KBVersionInfo | null>(null);
   const [localVersion, setLocalVersion] = useState(0);
@@ -27,44 +46,35 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
   const [modelError, setModelError] = useState('');
   const [isBackendReachable, setIsBackendReachable] = useState(false);
   const [currentStep, setCurrentStep] = useState<SetupStep>('ollama');
+  const [checking, setChecking] = useState(false);
 
   const checkModelStatus = useCallback(async () => {
+    setChecking(true);
     let available = false;
     let ollama = false;
 
-    await new Promise<void>((resolve) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'http://localhost:11434/api/tags', true);
-      xhr.timeout = 3000;
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            const data = JSON.parse(xhr.responseText);
-            ollama = true;
-            available = !!(data.models && data.models.some((m: any) => m.name === 'gemma2:2b'));
-          } catch {}
-        }
-        resolve();
-      };
-      xhr.onerror = () => resolve();
-      xhr.ontimeout = () => resolve();
-      xhr.send();
-    });
+    const stored = localStorage.getItem(LOCAL_OLLAMA_KEY);
+    if (stored === 'true') {
+      ollama = true;
+    }
+
+    try {
+      const resp = await fetch('/api/chat/model/status');
+      const data = await resp.json();
+      available = data.available;
+      ollama = ollama || data.ollama_connected;
+    } catch {
+    }
 
     if (!ollama) {
-      try {
-        const resp = await fetch('/api/chat/model/status');
-        const data = await resp.json();
-        available = data.available;
-        ollama = data.ollama_connected;
-      } catch {
-        available = false;
-        ollama = false;
-      }
+      const local = await detectLocalOllama();
+      ollama = local.ollama;
+      available = available || local.available;
     }
 
     setModelAvailable(available);
     setOllamaConnected(ollama);
+    setChecking(false);
     return { available, ollama };
   }, []);
 
@@ -109,6 +119,11 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
       setStatus('idle');
     });
   }, [isOpen]);
+
+  const handleConfirmOllama = () => {
+    localStorage.setItem(LOCAL_OLLAMA_KEY, 'true');
+    setOllamaConnected(true);
+  };
 
   const handleDownloadUpdate = async () => {
     setIsKbDownloading(true);
@@ -182,6 +197,7 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
   };
 
   const handleCheckOllamaAgain = async () => {
+    localStorage.removeItem(LOCAL_OLLAMA_KEY);
     await checkModelStatus();
   };
 
@@ -194,6 +210,22 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
 
   const stepLabels = ['Install Ollama', 'Download Model', 'Ready'];
   const stepIndex = currentStep === 'ollama' ? 0 : currentStep === 'download' ? 1 : 2;
+
+  const ServerDownAlert = () => (
+    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <span className="material-symbols-outlined text-amber-400 text-[20px]">info</span>
+        <div>
+          <p className="text-body-sm font-body-sm text-amber-300 mb-2">
+            Ollama couldn&apos;t be auto-detected (browser security blocks localhost requests from HTTPS sites).
+          </p>
+          <p className="text-body-sm font-body-sm text-on-surface-variant">
+            If you have Ollama installed, click the button below to confirm.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-black/60 z-60 flex items-center justify-center backdrop-blur-sm" onClick={setupMode ? handleFinishSetup : onClose}>
@@ -261,16 +293,7 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                     </div>
                   </div>
 
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-4">
-                    <div className="flex items-start gap-3">
-                      <span className="material-symbols-outlined text-amber-400 text-[20px]">info</span>
-                      <div>
-                        <p className="text-body-sm font-body-sm text-amber-300">
-                          Ollama is not detected. You need to install it first, then Blackout can download the AI model.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
+                  <ServerDownAlert />
 
                   <ol className="space-y-3 mb-6">
                     <li className="flex items-start gap-3">
@@ -290,29 +313,39 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                     <li className="flex items-start gap-3">
                       <span className="w-6 h-6 rounded-full bg-on-tertiary-container/10 text-on-tertiary-container flex items-center justify-center text-label-caps font-label-caps font-bold shrink-0">3</span>
                       <div>
-                        <p className="text-body-sm font-body-sm text-on-surface font-medium">Come back and click &ldquo;Check Again&rdquo;</p>
-                        <p className="text-body-sm font-body-sm text-on-surface-variant">Blackout will detect Ollama and guide you through the next step.</p>
+                        <p className="text-body-sm font-body-sm text-on-surface font-medium">Confirm installation below</p>
+                        <p className="text-body-sm font-body-sm text-on-surface-variant">Click &ldquo;I have Ollama&rdquo; to let Blackout know.</p>
                       </div>
                     </li>
                   </ol>
 
-                  <div className="flex items-center gap-3">
-                    <a
-                      href="https://ollama.com/download"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 bg-on-tertiary-container text-white px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-[20px]">open_in_new</span>
-                      Download Ollama
-                    </a>
+                  <div className="flex flex-col gap-3">
                     <button
-                      className="inline-flex items-center gap-2 bg-surface-container border border-glass-border text-on-surface px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-on-surface/5 transition-colors"
-                      onClick={handleCheckOllamaAgain}
+                      className="inline-flex items-center justify-center gap-2 bg-on-tertiary-container text-white px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
+                      onClick={handleConfirmOllama}
                     >
-                      <span className="material-symbols-outlined text-[20px]">refresh</span>
-                      Check Again
+                      <span className="material-symbols-outlined text-[20px]">check</span>
+                      I have Ollama installed
                     </button>
+                    <div className="flex items-center gap-3">
+                      <a
+                        href="https://ollama.com/download"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 inline-flex items-center justify-center gap-2 bg-surface-container border border-glass-border text-on-surface px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-on-surface/5 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">open_in_new</span>
+                        Download Ollama
+                      </a>
+                      <button
+                        className="inline-flex items-center justify-center gap-2 bg-surface-container border border-glass-border text-on-surface px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-on-surface/5 transition-colors disabled:opacity-40"
+                        onClick={handleCheckOllamaAgain}
+                        disabled={checking}
+                      >
+                        <span className="material-symbols-outlined text-[20px]">refresh</span>
+                        {checking ? 'Checking...' : 'Check Again'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -497,7 +530,7 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                           : 'Ollama Engine'}
                       </h4>
                       <p className="text-body-sm font-body-sm text-on-surface-variant">
-                        {!ollamaConnected && 'Ollama not detected — install Ollama first'}
+                        {!ollamaConnected && 'Ollama not detected'}
                         {ollamaConnected && !modelAvailable && 'Not installed — click to download'}
                         {ollamaConnected && modelAvailable && 'Installed and ready'}
                       </p>
@@ -519,15 +552,20 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                 </div>
 
                 {!ollamaConnected && (
-                  <div className="mt-4 pt-4 border-t border-glass-border/50">
-                    <p className="text-body-sm font-body-sm text-on-surface-variant mb-3">
-                      Ollama is required to run local AI models. Install it first, then come back to download the model.
-                    </p>
+                  <div className="mt-4 pt-4 border-t border-glass-border/50 space-y-3">
+                    <ServerDownAlert />
+                    <button
+                      className="inline-flex items-center gap-2 bg-on-tertiary-container text-white px-4 py-2 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
+                      onClick={handleConfirmOllama}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">check</span>
+                      I have Ollama installed
+                    </button>
                     <a
                       href="https://ollama.com/download"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 bg-on-tertiary-container text-white px-4 py-2 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
+                      className="inline-flex items-center gap-2 bg-surface-container border border-glass-border text-on-surface px-4 py-2 rounded-lg text-body-md font-body-md font-semibold hover:bg-on-surface/5 transition-colors"
                     >
                       <span className="material-symbols-outlined text-[20px]">open_in_new</span>
                       Download Ollama

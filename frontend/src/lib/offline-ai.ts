@@ -5,6 +5,27 @@ let _modelCheckTimestamp = 0;
 let _serverOllamaSeen = false;
 const MODEL_CHECK_TTL = 30000;
 
+const OLLAMA_URL = 'http://localhost:11434';
+
+async function directOllamaFetch(path: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(`${OLLAMA_URL}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    try {
+      return await fetch(`${OLLAMA_URL}${path}`, {
+        ...init,
+        mode: 'no-cors' as RequestMode,
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch {
+      return null;
+    }
+  }
+}
+
 export async function checkLocalModel(force = false): Promise<boolean> {
   const now = Date.now();
   if (!force && _modelCheckTimestamp > 0 && (now - _modelCheckTimestamp) < MODEL_CHECK_TTL) {
@@ -13,6 +34,12 @@ export async function checkLocalModel(force = false): Promise<boolean> {
   _modelCheckTimestamp = now;
 
   _serverOllamaSeen = false;
+
+  if (typeof window !== 'undefined' && localStorage.getItem('blackout_ollama_confirmed') === 'true') {
+    _localModelAvailable = true;
+    _serverOllamaSeen = false;
+    return true;
+  }
 
   try {
     const resp = await fetch('/api/chat/model/status');
@@ -24,20 +51,12 @@ export async function checkLocalModel(force = false): Promise<boolean> {
   }
   if (_localModelAvailable) return true;
 
-  _localModelAvailable = await _checkLocalOllamaDirect();
-  return _localModelAvailable;
-}
-
-async function _checkLocalOllamaDirect(): Promise<boolean> {
-  try {
-    const resp = await fetch('http://localhost:11434/api/tags', {
-      mode: 'no-cors',
-      signal: AbortSignal.timeout(2000),
-    });
-    return resp.type === 'opaque' || resp.ok;
-  } catch {
-    return false;
+  const resp = await directOllamaFetch('/api/tags');
+  if (resp && (resp.ok || resp.type === 'opaque')) {
+    _localModelAvailable = true;
+    _serverOllamaSeen = false;
   }
+  return _localModelAvailable;
 }
 
 const EMERGENCY_KEYWORDS = [
@@ -49,6 +68,32 @@ const EMERGENCY_KEYWORDS = [
 function isEmergencyQuery(query: string): boolean {
   const q = query.toLowerCase();
   return EMERGENCY_KEYWORDS.some(kw => q.includes(kw));
+}
+
+async function queryLocalModelDirect(query: string, history: { role: string; content: string }[] = []): Promise<OfflineResponse | null> {
+  const start = performance.now();
+  const messages = [
+    { role: 'system', content: 'You are Blackout AI, a helpful offline assistant. Be concise and direct.' },
+    ...(history || []).slice(-10).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+    { role: 'user', content: query },
+  ];
+
+  const resp = await directOllamaFetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'gemma2:2b', messages, stream: false }),
+  });
+  if (!resp || !resp.ok) return null;
+  if (resp.type === 'opaque') return null;
+
+  const data = await resp.json();
+  const latency = Math.round(performance.now() - start);
+  return {
+    answer: data.message?.content || '',
+    confidence: 0.9,
+    source: 'generated',
+    latency,
+  };
 }
 
 async function queryLocalModel(query: string, history: { role: string; content: string }[] = []): Promise<OfflineResponse> {
@@ -229,7 +274,11 @@ export async function queryOfflineAI(
     }
   }
 
-  if (modelAvailable && _serverOllamaSeen) {
+  if (modelAvailable) {
+    if (!_serverOllamaSeen) {
+      const direct = await queryLocalModelDirect(query, history);
+      if (direct) return { ...direct, modelAvailable: true };
+    }
     try {
       const result = await queryLocalModel(query, history);
       return { ...result, modelAvailable: true };
