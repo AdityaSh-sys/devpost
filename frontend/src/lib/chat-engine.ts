@@ -1,9 +1,28 @@
 // Chat Engine - Routes queries through the appropriate mode
 
 import { type ConnectivityMode, getConnectivityEngine } from './connectivity';
-import { queryOfflineAI, type OfflineResponse } from './offline-ai';
+import { queryOfflineAI, type OfflineResponse, checkProxy, isModelConfirmed } from './offline-ai';
 import { saveConversation, saveTelemetry, updateSession } from './sync';
 import { getAccessToken } from './auth';
+
+const MODEL_PERMISSION_KEY = 'blackout_allow_local_model';
+
+function hasLocalModelPermission(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(MODEL_PERMISSION_KEY) === 'true';
+}
+
+export function grantLocalModelPermission(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(MODEL_PERMISSION_KEY, 'true');
+  }
+}
+
+export function revokeLocalModelPermission(): void {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(MODEL_PERMISSION_KEY);
+  }
+}
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
@@ -83,7 +102,7 @@ async function queryOffline(query: string, history?: ChatMessage[]): Promise<Cha
     content: m.content,
   }));
 
-  const result: OfflineResponse = await queryOfflineAI(query, chatHistory);
+  const result: OfflineResponse = await queryOfflineAI(query, chatHistory, hasLocalModelPermission());
   const latency = Math.round(performance.now() - start);
 
   return {
@@ -107,6 +126,17 @@ export async function sendMessage(
   const effectiveMode = currentState.backendReachable && currentState.latency !== null && currentState.latency <= 5000
     ? 'online' as ConnectivityMode
     : 'offline' as ConnectivityMode;
+
+  if (mode === 'offline' && isModelConfirmed() && !hasLocalModelPermission()) {
+    const allow = typeof window !== 'undefined' && window.confirm(
+      'Blackout wants to use your local AI model (gemma2:2b via Ollama) to answer while offline.\n\n'
+      + 'This sends messages to http://localhost:11434 (or the proxy at http://localhost:8081).\n\n'
+      + 'Allow local model access?'
+    );
+    if (allow) {
+      grantLocalModelPermission();
+    }
+  }
 
   let response: ChatResponse;
   let actualMode = effectiveMode;

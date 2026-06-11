@@ -133,6 +133,13 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
     setOllamaConnected(true);
   };
 
+  const handleConfirmModel = () => {
+    localStorage.setItem(LOCAL_OLLAMA_KEY, 'true');
+    localStorage.setItem('blackout_model_confirmed', 'true');
+    setOllamaConnected(true);
+    setModelAvailable(true);
+  };
+
   const handleDownloadUpdate = async () => {
     setIsKbDownloading(true);
     setStatus('downloading');
@@ -358,6 +365,13 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                     >
                       <span className="material-symbols-outlined text-[20px]">check</span>
                       I have Ollama installed
+                    </button>
+                    <button
+                      className="inline-flex items-center justify-center gap-2 bg-status-success text-white px-5 py-2.5 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
+                      onClick={handleConfirmModel}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">neurology</span>
+                      I have gemma2:2b installed
                     </button>
                     <div className="flex items-center gap-3">
                       <a
@@ -592,6 +606,13 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
                     >
                       <span className="material-symbols-outlined text-[20px]">check</span>
                       I have Ollama installed
+                    </button>
+                    <button
+                      className="inline-flex items-center gap-2 bg-status-success text-white px-4 py-2 rounded-lg text-body-md font-body-md font-semibold hover:bg-secondary-container transition-colors"
+                      onClick={handleConfirmModel}
+                    >
+                      <span className="material-symbols-outlined text-[20px]">neurology</span>
+                      I have gemma2:2b installed
                     </button>
                     <a
                       href="https://ollama.com/download"

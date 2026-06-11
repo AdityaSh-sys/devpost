@@ -7,6 +7,21 @@ const MODEL_CHECK_TTL = 30000;
 
 const OLLAMA_URL = 'http://localhost:11434';
 const PROXY_URL = 'http://localhost:8081';
+const OLLAMA_CONFIRMED_KEY = 'blackout_ollama_confirmed';
+const MODEL_CONFIRMED_KEY = 'blackout_model_confirmed';
+
+export function isModelConfirmed(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem(OLLAMA_CONFIRMED_KEY) === 'true'
+      || localStorage.getItem(MODEL_CONFIRMED_KEY) === 'true';
+}
+
+function isProxyConfirmed(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('blackout_proxy_running') === 'true' || _proxyPinged;
+}
+
+let _proxyPinged = false;
 
 async function directOllamaFetch(path: string, init?: RequestInit): Promise<Response | null> {
   try {
@@ -29,13 +44,26 @@ async function directOllamaFetch(path: string, init?: RequestInit): Promise<Resp
 
 async function proxyFetch(path: string, init?: RequestInit): Promise<Response | null> {
   try {
-    return await fetch(`${PROXY_URL}${path}`, {
+    const resp = await fetch(`${PROXY_URL}${path}`, {
       ...init,
       signal: AbortSignal.timeout(5000),
     });
+    if (resp.ok) _proxyPinged = true;
+    return resp.ok ? resp : null;
   } catch {
     return null;
   }
+}
+
+export async function checkProxy(): Promise<boolean> {
+  const resp = await proxyFetch('/api/tags');
+  if (resp) {
+    localStorage.setItem('blackout_proxy_running', 'true');
+    _proxyPinged = true;
+    return true;
+  }
+  localStorage.removeItem('blackout_proxy_running');
+  return false;
 }
 
 export async function checkLocalModel(force = false): Promise<boolean> {
@@ -47,9 +75,10 @@ export async function checkLocalModel(force = false): Promise<boolean> {
 
   _serverOllamaSeen = false;
 
-  if (typeof window !== 'undefined' && localStorage.getItem('blackout_ollama_confirmed') === 'true') {
+  if (isModelConfirmed()) {
     _localModelAvailable = true;
     _serverOllamaSeen = false;
+    await checkProxy();
     return true;
   }
 
@@ -97,53 +126,113 @@ async function queryLocalModelDirect(query: string, history: { role: string; con
     { role: 'user', content: query },
   ];
 
-  let resp = await directOllamaFetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'gemma2:2b', messages, stream: false }),
-  });
-  if (!resp || !resp.ok || resp.type === 'opaque') {
-    resp = await proxyFetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'gemma2:2b', messages, stream: false }),
-    });
-  }
-  if (!resp || !resp.ok) return null;
+  const body = JSON.stringify({ model: 'gemma2:2b', messages, stream: false });
+  const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body } as const;
 
-  const data = await resp.json();
-  const latency = Math.round(performance.now() - start);
-  return {
-    answer: data.message?.content || '',
-    confidence: 0.9,
-    source: 'generated',
-    latency,
-  };
+  let resp = await proxyFetch('/api/chat', opts);
+  if (!resp) {
+    resp = await directOllamaFetch('/api/chat', opts);
+  }
+  if (resp && resp.ok && resp.type !== 'opaque') {
+    const data = await resp.json();
+    const latency = Math.round(performance.now() - start);
+    return {
+      answer: data.message?.content || '',
+      confidence: 0.9,
+      source: 'generated',
+      latency,
+    };
+  }
+
+  const proxyOk = isProxyConfirmed();
+  if (proxyOk) {
+    const latency = Math.round(performance.now() - start);
+    return {
+      answer: `⏳ **Local model unreachable**\n\nYour local proxy at \`http://localhost:8081\` is running but the AI model didn't respond. Make sure **Ollama** is running and **gemma2:2b** is pulled:\n\n\`\`\`bash\nollama pull gemma2:2b\n\`\`\`\n\nThen try your question again.`,
+      confidence: 0,
+      source: 'generated',
+      latency,
+    };
+  }
+
+  return null;
 }
 
 async function queryLocalModel(query: string, history: { role: string; content: string }[] = []): Promise<OfflineResponse> {
   const start = performance.now();
+  const latency = () => Math.round(performance.now() - start);
 
-  const response = await fetch('/api/chat/offline', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, history }),
-    signal: AbortSignal.timeout(60000),
-  });
+  const messages = [
+    { role: 'system', content: 'You are Blackout AI, a helpful offline assistant. Be concise and direct.' },
+    ...(history || []).slice(-10).map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
+    { role: 'user', content: query },
+  ];
 
-  if (!response.ok) throw new Error('Local model unavailable');
+  try {
+    const response = await fetch('/api/chat/offline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, history }),
+      signal: AbortSignal.timeout(15000),
+    });
 
-  const data = await response.json();
-  const latency = Math.round(performance.now() - start);
+    if (response.ok) {
+      const data = await response.json();
+      return {
+        answer: data.response,
+        confidence: 0.9,
+        source: 'generated',
+        spanId: data.span_id ?? undefined,
+        traceId: data.trace_id ?? undefined,
+        latency: latency(),
+      };
+    }
+  } catch {}
 
-  return {
-    answer: data.response,
-    confidence: 0.9,
-    source: 'generated',
-    spanId: data.span_id ?? undefined,
-    traceId: data.trace_id ?? undefined,
-    latency,
-  };
+  const body = JSON.stringify({ model: 'gemma2:2b', messages, stream: false });
+  const opts = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body } as const;
+
+  const proxyResp = await proxyFetch('/api/chat', opts);
+  if (proxyResp && proxyResp.ok) {
+    const data = await proxyResp.json();
+    return {
+      answer: data.message?.content || '',
+      confidence: 0.9,
+      source: 'generated',
+      latency: latency(),
+    };
+  }
+
+  const directResp = await directOllamaFetch('/api/chat', opts);
+  if (directResp && directResp.ok && directResp.type !== 'opaque') {
+    const data = await directResp.json();
+    return {
+      answer: data.message?.content || '',
+      confidence: 0.9,
+      source: 'generated',
+      latency: latency(),
+    };
+  }
+
+  if (isProxyConfirmed()) {
+    return {
+      answer: `⏳ **Local model unreachable**\n\nYour local proxy at \`http://localhost:8081\` is running but the AI model didn't respond. Make sure **Ollama** is running and **gemma2:2b** is pulled:\n\n\`\`\`bash\nollama pull gemma2:2b\n\`\`\`\n\nThen try your question again.`,
+      confidence: 0,
+      source: 'generated',
+      latency: latency(),
+    };
+  }
+
+  if (isModelConfirmed()) {
+    return {
+      answer: `🔌 **Proxy required**\n\nTo use your local AI model from the deployed app, run the local proxy:\n\n\`\`\`bash\npython backend/ollama-proxy.py\n\`\`\`\n\nThis bridges Ollama on your machine to the Blackout frontend. Keep it running alongside Ollama and ask your question again.`,
+      confidence: 0,
+      source: 'generated',
+      latency: latency(),
+    };
+  }
+
+  throw new Error('Local model unavailable');
 }
 
 function tokenize(text: string): string[] {
@@ -288,8 +377,10 @@ async function queryOfflineKB(query: string): Promise<OfflineResponse> {
 export async function queryOfflineAI(
   query: string,
   history?: { role: string; content: string }[],
+  allowLocal?: boolean,
 ): Promise<OfflineResponse> {
-  const modelAvailable = await checkLocalModel();
+  const permitted = allowLocal ?? (typeof window !== 'undefined' && localStorage.getItem('blackout_allow_local_model') === 'true');
+  const modelAvailable = permitted && await checkLocalModel();
   const emergency = isEmergencyQuery(query);
 
   if (emergency) {
@@ -302,7 +393,10 @@ export async function queryOfflineAI(
   if (modelAvailable) {
     if (!_serverOllamaSeen) {
       const direct = await queryLocalModelDirect(query, history);
-      if (direct) return { ...direct, modelAvailable: true };
+      if (direct) {
+        if (direct.confidence === 0) return { ...direct, modelAvailable: true };
+        return { ...direct, modelAvailable: true };
+      }
     }
     try {
       const result = await queryLocalModel(query, history);
@@ -310,6 +404,15 @@ export async function queryOfflineAI(
     } catch {
       console.log('Local model call failed, falling back to KB');
     }
+  }
+
+  if (isModelConfirmed()) {
+    return {
+      answer: `🔌 **Proxy required**\n\nTo use your local AI model from the deployed app, run the local proxy:\n\n\`\`\`bash\npython backend/ollama-proxy.py\n\`\`\`\n\nThis bridges Ollama on your machine to the Blackout frontend. Keep it running alongside Ollama and ask your question again.`,
+      confidence: 0,
+      source: 'generated',
+      modelAvailable: true,
+    };
   }
 
   const kbResult = await queryOfflineKB(query);
