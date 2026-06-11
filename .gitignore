@@ -1,0 +1,4 @@
+stitch_clean_motion_interface/
+handoff.md
+backend/.env
+backend/venv

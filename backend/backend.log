@@ -1,0 +1,76 @@
+INFO:     Will watch for changes in these directories: ['/home/myst/devpost/devpost/Blackout/backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [64958] using StatReload
+🔭 OpenTelemetry Tracing Details 🔭
+|  Phoenix Project: blackout
+|  Span Processor: SimpleSpanProcessor
+|  Collector Endpoint: https://app.phoenix.arize.com/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  ⚠️ WARNING: It is strongly advised to use a BatchSpanProcessor in production environments.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+INFO:     Started server process [65002]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+🔭 OpenTelemetry Tracing Details 🔭
+|  Phoenix Project: blackout
+|  Span Processor: SimpleSpanProcessor
+|  Collector Endpoint: https://app.phoenix.arize.com/v1/traces
+|  Transport: HTTP + protobuf
+|  Transport Headers: {'authorization': '****'}
+|  
+|  Using a default SpanProcessor. `add_span_processor` will overwrite this default.
+|  
+|  ⚠️ WARNING: It is strongly advised to use a BatchSpanProcessor in production environments.
+|  
+|  `register` has set this TracerProvider as the global OpenTelemetry default.
+|  To disable this behavior, call `register` with `set_global_tracer_provider=False`.
+
+INFO:     127.0.0.1:55158 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34768 - "GET /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:43810 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49450 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36738 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41870 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49942 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47876 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:36812 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52708 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:48300 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44080 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51676 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40550 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50116 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34510 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57690 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:47906 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51366 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56486 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38632 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50306 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40270 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57934 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:39144 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58962 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54260 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41064 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34426 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38456 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52596 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:34004 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42644 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:45412 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53380 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40696 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:41172 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:46486 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33980 - "HEAD /ping HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60148 - "POST /auth/login HTTP/1.1" 200 OK
+Failed to export span batch code: 401, reason: Unauthorized
+INFO:     127.0.0.1:33120 - "POST /chat/offline HTTP/1.1" 503 Service Unavailable
