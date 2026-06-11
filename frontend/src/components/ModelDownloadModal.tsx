@@ -194,13 +194,37 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
       await resetModelCheck();
       await checkModelStatus();
     } catch (e: any) {
-      clearInterval(pollInterval);
-      setModelDownloadStatus('error');
-      setModelError(
-        local.ollama
-          ? 'Model is installed locally but backend download failed. Run: ollama pull gemma2:2b'
-          : (e.message || 'Download failed. Ensure Ollama is installed and running.')
-      );
+      if (!local.ollama) {
+        clearInterval(pollInterval);
+        setModelDownloadStatus('error');
+        setModelError(e.message || 'Download failed. Ensure Ollama is installed and running.');
+        return;
+      }
+
+      try {
+        const proxyResp = await fetch('http://localhost:8081/api/pull', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'gemma2:2b' }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!proxyResp.ok) throw new Error('Proxy pull failed');
+      } catch {
+        try {
+          const directResp = await fetch('http://localhost:11434/api/pull', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: 'gemma2:2b' }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!directResp.ok) throw new Error('Direct pull failed');
+        } catch {
+          clearInterval(pollInterval);
+          setModelDownloadStatus('error');
+          setModelError('Model is installed locally but download failed. Run: ollama pull gemma2:2b');
+          return;
+        }
+      }
     }
   };
 
