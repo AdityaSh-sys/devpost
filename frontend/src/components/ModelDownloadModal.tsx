@@ -43,14 +43,23 @@ export default function ModelDownloadModal({ isOpen, onClose, setupMode = false 
     }
 
     if (!ollama) {
-      try {
-        const direct = await fetch('http://localhost:11434/api/tags', {
-          mode: 'no-cors',
-          signal: AbortSignal.timeout(2000),
-        });
-        ollama = direct.type === 'opaque' || direct.ok;
-      } catch {
-      }
+      ollama = await new Promise<boolean>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', 'http://localhost:11434/api/tags', true);
+        xhr.timeout = 2000;
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const data = JSON.parse(xhr.responseText);
+              available = !!(data.models && data.models.some((m: any) => m.name === 'gemma2:2b'));
+            } catch {}
+          }
+          resolve(true);
+        };
+        xhr.onerror = () => resolve(false);
+        xhr.ontimeout = () => resolve(false);
+        xhr.send();
+      });
     }
 
     setModelAvailable(available);

@@ -694,11 +694,11 @@ def init_phoenix():
         full_endpoint = base_endpoint.rstrip("/")
         if not full_endpoint.endswith("/v1/traces"):
             full_endpoint += "/v1/traces"
-        os.environ.setdefault("OTEL_EXPORTER_OTLP_HEADERS", f"api_key={PHOENIX_API_KEY}")
         tracer_provider = register(
             project_name="blackout",
             endpoint=full_endpoint,
             protocol="http/protobuf",
+            api_key=PHOENIX_API_KEY,
         )
         _tracer = trace.get_tracer("blackout.backend")
         print(f"Arize Phoenix tracing initialized — endpoint: {full_endpoint}")
